@@ -9,7 +9,7 @@ OUT = Path("plots")
 OUT.mkdir(exist_ok=True)
 
 def load_data():
-    # Load directly from the extracted folder (NO ZIP)
+    
     parquet_path = Path("QEvasion/data/train-00000-of-00001.parquet")
     train = pd.read_parquet(parquet_path)
 
