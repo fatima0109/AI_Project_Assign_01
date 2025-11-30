@@ -1,0 +1,46 @@
+\documentclass[conference]{IEEEtran}
+\usepackage{graphicx}
+\usepackage{booktabs}
+\title{Assignment 2: Baseline Pipeline for QEvasion}
+\author{Student A \and Student B \and Student C \\ CS-272: Artificial Intelligence}
+\begin{document}
+\maketitle
+\begin{abstract}
+We implement three baseline models for the QEvasion task: (A) TF-IDF + Logistic Regression, (B) Bi-LSTM, and (C) TF-IDF + Linear SVM. This report summarizes the pipeline, hyperparameters and validation results.
+\end{abstract}
+\section{Pipeline Overview}
+The pipeline consists of: data loading $\rightarrow$ preprocessing (tokenization, TF-IDF / sequences) $\rightarrow$ baseline models $\rightarrow$ evaluation. All figures and plots are saved as PDF in the \texttt{plots/} folder.
+\section{Baselines and Hyperparameters}
+\textbf{Baseline A (Student A):} TF-IDF (1--2grams, 10k features) + Logistic Regression (saga solver, class\_weight=balanced).\\
+\textbf{Baseline B (Student B):} Bi-LSTM with 100-dim embedding, Bi-LSTM(64), GlobalMaxPool, Dense(64). Trained with Adam and early stopping.\\
+\textbf{Baseline C (Student C):} TF-IDF + LinearSVC (10k features).\\
+\section{Results}
+Validation metrics are saved in \texttt{results/baseline_metrics.csv}. Example values (fill after running):
+
+\begin{table}[ht]
+\centering
+\caption{Validation results}
+\begin{tabular}{lcc}
+\toprule
+Baseline & Val Acc & Val F1-macro \\ \midrule
+A\_TFIDF\_LR & 0.000 & 0.000 \\
+B\_BiLSTM    & 0.000 & 0.000 \\
+C\_TFIDF\_SVC& 0.000 & 0.000 \\ \bottomrule
+\end{tabular}
+\end{table}
+
+\section{Implementation Notes}
+All code is in \texttt{code/}. Run \texttt{code/train.py} then \texttt{code/evaluate.py} to produce the plots (PDF). Use Google Colab for reproducible environment with GPU for faster Bi-LSTM training.
+
+\section{Author Contribution}
+\begin{tabular}{lll}
+\toprule
+Student & Task & Files \\ \midrule
+Student A & Baseline A implementation, EDA plot & model\_baseline\_A.py, data\_loader.py \\
+Student B & Bi-LSTM training, loss curve & model\_baseline\_B.py, train.py \\
+Student C & Baseline C, metrics comparison & model\_baseline\_C.py, evaluate.py \\ \bottomrule
+\end{tabular}
+
+\section{Conclusion}
+The implemented baselines provide a solid starting point. Future work includes transformer fine-tuning and augmentation.
+\end{document}

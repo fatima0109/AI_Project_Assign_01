@@ -1,0 +1,6 @@
+*.pyc
+__pycache__/
+models/
+plots/
+results/
+Assignment_02_Submission.zip
