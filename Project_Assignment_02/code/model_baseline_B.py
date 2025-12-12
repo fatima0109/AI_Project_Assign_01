@@ -1,6 +1,9 @@
 """
 Baseline B: BiLSTM model definition
 """
+import tensorflow as tf
+model = tf.keras.Sequential()
+layers = tf.keras.layers
 from tensorflow.keras.models import Sequential
 from tensorflow.keras.layers import Embedding, Bidirectional, LSTM, Dense, Dropout, GlobalMaxPool1D
 
