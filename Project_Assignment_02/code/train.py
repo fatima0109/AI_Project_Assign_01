@@ -6,9 +6,9 @@ import pandas as pd
 import numpy as np
 from pathlib import Path
 from sklearn.metrics import accuracy_score, f1_score
-from models.baseline_a import build_baseline_a
-from models.baseline_c import build_baseline_c
-from models.proposed import build_proposed_model
+from model_baseline_A import build_baseline_a
+from model_baseline_C import build_baseline_c
+from model_proposed import build_proposed_model
 
 def train_sklearn_model(build_fn, X_train, y_train, model_path):
     """Train sklearn model."""
@@ -16,7 +16,7 @@ def train_sklearn_model(build_fn, X_train, y_train, model_path):
     model = build_fn()
     model.fit(X_train, y_train)
     joblib.dump(model, model_path)
-    print(f"✅ Saved to {model_path}")
+    print(f" Saved to {model_path}")
     return model
 
 def train_all_models(splits, output_dir="models"):
@@ -54,7 +54,7 @@ def train_all_models(splits, output_dir="models"):
     models["Proposed"] = proposed
     
     # Evaluate on validation set
-    print("\n📊 Validation Performance:")
+    print("\n Validation Performance:")
     for name, model in models.items():
         y_pred = model.predict(splits["X_val"])
         acc = accuracy_score(splits["y_val"], y_pred)
