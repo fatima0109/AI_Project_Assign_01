@@ -1,0 +1,4 @@
+Model,Accuracy,F1_Score
+Baseline A,0.6558,0.5723
+Baseline C,0.5714,0.548
+Proposed Model,0.4513,0.4797

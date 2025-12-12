@@ -1,0 +1,49 @@
+{
+  "experiment_settings": {
+    "train_path": "QEvasion\\data\\train-00000-of-00001.parquet",
+    "test_path": "QEvasion\\data\\test-00000-of-00001.parquet",
+    "augment": false,
+    "ensemble": false,
+    "simple_model": false,
+    "epochs": 5,
+    "batch_size": 32,
+    "val_size": 0.15
+  },
+  "data_statistics": {
+    "train_samples": 2930,
+    "val_samples": 518,
+    "test_samples": 308,
+    "class_distribution_train": {
+      "Ambivalent": 1734,
+      "Clear Reply": 894,
+      "Clear Non-Reply": 302
+    },
+    "class_distribution_test": {
+      "Ambivalent": 206,
+      "Clear Reply": 79,
+      "Clear Non-Reply": 23
+    }
+  },
+  "model_performance": [
+    {
+      "Model": "Baseline A",
+      "Accuracy": 0.6558,
+      "F1_Score": 0.5723
+    },
+    {
+      "Model": "Baseline C",
+      "Accuracy": 0.5714,
+      "F1_Score": 0.548
+    },
+    {
+      "Model": "Proposed Model",
+      "Accuracy": 0.4513,
+      "F1_Score": 0.4797
+    }
+  ],
+  "best_model": {
+    "Model": "Baseline A",
+    "Accuracy": 0.6558,
+    "F1_Score": 0.5723
+  }
+}
