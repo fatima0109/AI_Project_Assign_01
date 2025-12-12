@@ -1,7 +1,6 @@
 # File: visualization_dashboard.py
 """
 Interactive visualization dashboard (optional extra credit).
-Student 3's responsibility.
 """
 
 import os

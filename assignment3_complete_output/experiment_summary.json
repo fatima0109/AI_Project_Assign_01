@@ -1,0 +1,78 @@
+{
+  "experiment": {
+    "name": "Assignment 3 - QEvasion Text Classification",
+    "dataset": "QEvasion",
+    "date": "2025-12-12 18:57:28"
+  },
+  "data_statistics": {
+    "train_samples": 2758,
+    "test_samples": 690,
+    "n_classes": 9,
+    "classes": [
+      "Claims ignorance",
+      "Clarification",
+      "Declining to answer",
+      "Deflection",
+      "Dodging",
+      "Explicit",
+      "General",
+      "Implicit",
+      "Partial/half-answer"
+    ],
+    "class_distribution_train": {
+      "2": 116,
+      "5": 841,
+      "4": 565,
+      "1": 74,
+      "7": 390,
+      "8": 63,
+      "3": 305,
+      "6": 309,
+      "0": 95
+    },
+    "class_distribution_test": {
+      "4": 141,
+      "5": 211,
+      "6": 77,
+      "3": 76,
+      "1": 18,
+      "0": 24,
+      "7": 98,
+      "8": 16,
+      "2": 29
+    }
+  },
+  "models": {
+    "Baseline_A": "TF-IDF + Logistic Regression",
+    "Baseline_C": "TF-IDF + LinearSVC with n-grams",
+    "Proposed": "Enhanced TF-IDF + Balanced Logistic Regression",
+    "Ensemble": "Majority voting ensemble"
+  },
+  "results": [
+    {
+      "Model": "Baseline_A",
+      "Accuracy": 0.3058,
+      "F1_Score": 0.1432
+    },
+    {
+      "Model": "Baseline_C",
+      "Accuracy": 0.3058,
+      "F1_Score": 0.1432
+    },
+    {
+      "Model": "Proposed",
+      "Accuracy": 0.3058,
+      "F1_Score": 0.1432
+    },
+    {
+      "Model": "Ensemble",
+      "Accuracy": 0.3058,
+      "F1_Score": 0.1432
+    }
+  ],
+  "best_model": {
+    "name": "Baseline_A",
+    "accuracy": 0.3058,
+    "f1_score": 0.1432
+  }
+}

@@ -1,0 +1,79 @@
+{
+  "experiment": {
+    "name": "Assignment 3 - QEvasion Text Classification",
+    "date": "2025-12-12 19:13:01",
+    "text_column_used": "question",
+    "label_column_used": "evasion_label",
+    "note": "Test set had empty labels - used 80/20 split from training data"
+  },
+  "dataset": {
+    "total_samples": 3448,
+    "train_samples": 2344,
+    "val_samples": 414,
+    "test_samples": 690,
+    "n_classes": 9,
+    "classes": [
+      "Claims ignorance",
+      "Clarification",
+      "Declining to answer",
+      "Deflection",
+      "Dodging",
+      "Explicit",
+      "General",
+      "Implicit",
+      "Partial/half-answer"
+    ],
+    "class_imbalance_ratio": 13.1875
+  },
+  "models": [
+    "Baseline_A",
+    "Baseline_C",
+    "Proposed",
+    "RandomForest"
+  ],
+  "results": [
+    {
+      "Model": "Baseline_A",
+      "Accuracy": 0.1942,
+      "F1_Score": 0.2053
+    },
+    {
+      "Model": "Baseline_C",
+      "Accuracy": 0.2217,
+      "F1_Score": 0.2278
+    },
+    {
+      "Model": "Proposed",
+      "Accuracy": 0.158,
+      "F1_Score": 0.1657
+    },
+    {
+      "Model": "RandomForest",
+      "Accuracy": 0.2406,
+      "F1_Score": 0.2305
+    },
+    {
+      "Model": "Ensemble",
+      "Accuracy": 0.1986,
+      "F1_Score": 0.2098
+    }
+  ],
+  "best_models": {
+    "by_accuracy": {
+      "model": "RandomForest",
+      "accuracy": 0.2406,
+      "f1_score": 0.2305
+    },
+    "by_f1_score": {
+      "model": "RandomForest",
+      "accuracy": 0.2406,
+      "f1_score": 0.2305
+    }
+  },
+  "key_insights": [
+    "Dataset has significant class imbalance (ratio: 13.2:1)",
+    "Best model achieves 24.1% accuracy",
+    "F1 scores range from 16.6% to 23.1%",
+    "Ensemble method did not significantly improve performance"
+  ]
+}

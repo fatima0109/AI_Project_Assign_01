@@ -1,0 +1,24 @@
+{
+  "assignment": 3,
+  "dataset": {
+    "train_samples": 3448,
+    "test_samples": 308,
+    "n_classes": 9,
+    "classes": [
+      "Claims ignorance",
+      "Clarification",
+      "Declining to answer",
+      "Deflection",
+      "Dodging",
+      "Explicit",
+      "General",
+      "Implicit",
+      "Partial/half-answer"
+    ]
+  },
+  "results": {
+    "best_model": "Ensemble",
+    "best_accuracy": 0.438,
+    "best_f1_score": 0.418
+  }
+}

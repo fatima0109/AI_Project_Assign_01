@@ -1,73 +1,84 @@
 """
-Simplified ensemble model combining all baselines + proposed transformer.
-Student 1's responsibility.
+Fixed Ensemble Model
 """
 import numpy as np
 import joblib
+from collections import Counter
 
-class SimpleEnsemble:
-    def __init__(self, model_paths, weights=None):
-        """
-        Simple ensemble of baseline models
-        """
+class FixedEnsemble:
+    def __init__(self, model_paths=None, weights=None):
+        """Fixed ensemble model."""
         self.models = {}
-        self.weights = weights or [0.25, 0.25, 0.25, 0.25]
-
-        try:
-            self.models['A'] = joblib.load(model_paths['A'])
-            print("Loaded Model A")
-        except (FileNotFoundError, KeyError):
-            print("Could not load Model A")
-
-        try:
-            self.models['C'] = joblib.load(model_paths['C'])
-            print("Loaded Model C")
-        except (FileNotFoundError, KeyError):
-            print("Could not load Model C")
-
-    def predict(self, texts):
-        """Simple majority voting prediction"""
+        self.model_names = []
+        self.weights = weights
+        
+        if model_paths:
+            for name, path in model_paths.items():
+                try:
+                    self.models[name] = joblib.load(path)
+                    self.model_names.append(name)
+                    print(f"✅ Loaded {name}")
+                except Exception as e:
+                    print(f"❌ Failed to load {name}: {e}")
+        
+        if self.weights is None and self.models:
+            self.weights = [1.0 / len(self.models)] * len(self.models)
+    
+    def predict(self, X):
+        """Majority voting prediction."""
         all_predictions = []
-
-        if 'A' in self.models:
-            all_predictions.append(self.models['A'].predict(texts))
-        if 'C' in self.models:
-            all_predictions.append(self.models['C'].predict(texts))
-
+        
+        for name in self.model_names:
+            if name in self.models:
+                pred = self.models[name].predict(X)
+                all_predictions.append(pred)
+        
         if not all_predictions:
-            raise ValueError("No models loaded for ensemble")
-
-        stacked_preds = np.column_stack(all_predictions)
-        final_predictions = []
-
-        for preds in stacked_preds:
-            unique, counts = np.unique(preds, return_counts=True)
-            final_predictions.append(unique[np.argmax(counts)])
-
-        return np.array(final_predictions)
-
-    def predict_proba_weighted(self, texts):
-        """Weighted probability averaging"""
-        all_probs = []
-
-        if 'A' in self.models and hasattr(self.models['A'], 'predict_proba'):
-            all_probs.append(self.models['A'].predict_proba(texts))
-        if 'C' in self.models and hasattr(self.models['C'], 'predict_proba'):
-            all_probs.append(self.models['C'].predict_proba(texts))
-
-        if not all_probs:
-            preds = self.predict(texts)
-            unique_preds = np.unique(preds)
-            n_classes = len(unique_preds)
-            probs = np.zeros((len(preds), n_classes))
-            for i, pred in enumerate(preds):
-                idx = np.where(unique_preds == pred)[0][0]
-                probs[i, idx] = 1.0
-            return probs
-
-        weighted_probs = np.zeros_like(all_probs[0], dtype=float)
-        for i, prob in enumerate(all_probs):
-            weight = self.weights[i] if i < len(self.weights) else 1.0 / len(all_probs)
-            weighted_probs += weight * prob
-
-        return weighted_probs / weighted_probs.sum(axis=1, keepdims=True)
+            raise ValueError("No models available for prediction")
+        
+        # Stack predictions
+        stacked = np.column_stack(all_predictions)
+        ensemble_preds = []
+        
+        # Majority voting
+        for row in stacked:
+            votes = Counter(row)
+            winner = votes.most_common(1)[0][0]
+            ensemble_preds.append(winner)
+        
+        return np.array(ensemble_preds)
+    
+    def predict_proba(self, X):
+        """Weighted probability averaging."""
+        all_probas = []
+        
+        for name in self.model_names:
+            if name in self.models:
+                model = self.models[name]
+                if hasattr(model, 'predict_proba'):
+                    proba = model.predict_proba(X)
+                    all_probas.append(proba)
+                else:
+                    # For models without predict_proba (like SVC)
+                    pred = model.predict(X)
+                    classes = np.unique(pred)
+                    n_classes = len(classes)
+                    proba = np.zeros((len(pred), n_classes))
+                    for i, p in enumerate(pred):
+                        idx = np.where(classes == p)[0][0]
+                        proba[i, idx] = 1.0
+                    all_probas.append(proba)
+        
+        if not all_probas:
+            raise ValueError("No models available for probability prediction")
+        
+        # Weighted average
+        weighted_proba = np.zeros_like(all_probas[0])
+        for i, proba in enumerate(all_probas):
+            weight = self.weights[i] if i < len(self.weights) else 1.0
+            weighted_proba += weight * proba
+        
+        # Normalize
+        weighted_proba /= weighted_proba.sum(axis=1, keepdims=True)
+        
+        return weighted_proba

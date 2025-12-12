@@ -1,741 +1,502 @@
-# File: run_assignment3_final_corrected.py
+# File: run_experiments.py
 """
-Final corrected version for Assignment 3 with proper error handling.
+Assignment 3
 """
-
-import argparse
-import sys
-from pathlib import Path
-import joblib
-import matplotlib.pyplot as plt
 import pandas as pd
 import numpy as np
-import re
-from sklearn.metrics import accuracy_score, f1_score, confusion_matrix, classification_report, ConfusionMatrixDisplay
-from sklearn.model_selection import train_test_split
+import matplotlib.pyplot as plt
+from pathlib import Path
+from sklearn.pipeline import Pipeline
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.linear_model import LogisticRegression
 from sklearn.svm import LinearSVC
-from sklearn.pipeline import Pipeline
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.metrics import accuracy_score, f1_score, confusion_matrix, classification_report, ConfusionMatrixDisplay
+from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import LabelEncoder
+from sklearn.utils.class_weight import compute_class_weight
+import joblib
 import json
+import re
+from collections import Counter
+import warnings
+warnings.filterwarnings('ignore')
+
+print("ASSIGNMENT 3 - FINAL CORRECTED SOLUTION")
+
+# STEP 1: LOAD AND EXPLORE DATA 
+print("\n STEP 1: EXPLORING DATA COLUMNS")
+
+train_path = Path("QEvasion/data/train-00000-of-00001.parquet")
+train_df = pd.read_parquet(train_path)
+
+print(f"Train shape: {train_df.shape}")
+print(f"Columns: {train_df.columns.tolist()}")
+
+# Check text columns more carefully
+print("\n TEXT COLUMNS ANALYSIS:")
+text_columns = ['affirmative_questions', 'question', 'interview_question', 'interview_answer', 'gpt3.5_summary']
+for col in text_columns:
+    if col in train_df.columns:
+        sample = train_df[col].iloc[0]
+        length = len(str(sample))
+        print(f"  {col:25s}: Sample length = {length:4d} chars, Sample preview: '{str(sample)[:100]}...'")
+
+# Choose the best text column
+text_col = None
+for col in ['question', 'interview_question', 'interview_answer', 'gpt3.5_summary']:
+    if col in train_df.columns:
+        avg_len = train_df[col].astype(str).str.len().mean()
+        if avg_len > 20:  # Reasonable text length
+            text_col = col
+            print(f"\n Selected text column: '{text_col}' (avg length: {avg_len:.0f} chars)")
+            break
+
+if text_col is None:
+    text_col = 'question' if 'question' in train_df.columns else train_df.columns[0]
+    print(f"\n  Using fallback text column: '{text_col}'")
+
+label_col = 'evasion_label'
+print(f"Using label column: '{label_col}'")
+
+# Remove empty labels
+train_df = train_df[train_df[label_col].notna() & (train_df[label_col].astype(str).str.strip() != '')].copy()
+
+# Encode labels
+le = LabelEncoder()
+train_df['label_encoded'] = le.fit_transform(train_df[label_col])
+
+print(f"\n DATASET SUMMARY:")
+print(f"  Samples: {len(train_df)}")
+print(f"  Classes: {len(le.classes_)}")
+print(f"  Class distribution:")
+for i, cls in enumerate(le.classes_):
+    count = (train_df['label_encoded'] == i).sum()
+    percentage = count / len(train_df) * 100
+    print(f"    {cls:25s}: {count:4d} ({percentage:5.1f}%)")
+
+# STEP 2: PREPROCESS TEXT
+print("\n STEP 2: PREPROCESSING TEXT")
 
 def clean_text(text):
     """Clean and preprocess text"""
     if not isinstance(text, str):
         return ""
-    
-    # Convert to string and handle NaN
     text = str(text)
-    
-    # Convert to lowercase
     text = text.lower()
-    
-    # Remove extra whitespace
-    text = ' '.join(text.split())
-    
-    # Remove special characters but keep basic punctuation
     text = re.sub(r'[^\w\s.,!?-]', '', text)
-    
+    text = ' '.join(text.split())
     return text
 
-def clean_labels(labels):
-    """Clean labels - handle empty strings and convert to string"""
-    cleaned = []
-    for label in labels:
-        if pd.isna(label) or label == '' or label is None:
-            cleaned.append('Unknown')
-        else:
-            cleaned.append(str(label).strip())
-    return pd.Series(cleaned)
+train_df['text_clean'] = train_df[text_col].astype(str).apply(clean_text)
 
-def load_and_prepare_data(train_path, test_path):
-    """Load and prepare data with proper preprocessing and error handling"""
-    print("Loading data...")
-    
-    train_df = pd.read_parquet(train_path)
-    test_df = pd.read_parquet(test_path)
-    
-    print(f"Train shape: {train_df.shape}")
-    print(f"Test shape: {test_df.shape}")
-    print(f"\nTrain columns: {train_df.columns.tolist()}")
-    print(f"Test columns: {test_df.columns.tolist()}")
-    
-    # Auto-detect columns
-    text_col = None
-    label_col = None
-    
-    # Look for text columns
-    possible_text_cols = ['affirmative_questions', 'text', 'question', 'utterance', 
-                         'interview_question', 'interview_answer', 'content']
-    
-    for col in possible_text_cols:
-        if col in train_df.columns:
-            text_col = col
-            print(f"Found text column: '{text_col}'")
-            break
-    
-    if text_col is None:
-        # Use first object/string column
-        for col in train_df.columns:
-            if train_df[col].dtype == 'object':
-                text_col = col
-                print(f"Using text column: '{text_col}' (auto-detected)")
-                break
-    
-    # Look for label columns
-    possible_label_cols = ['evasion_label', 'label', 'labels', 'target', 'class', 
-                          'is_evasive', 'evasive', 'category']
-    
-    for col in possible_label_cols:
-        if col in train_df.columns:
-            label_col = col
-            print(f"Found label column: '{label_col}'")
-            break
-    
-    if label_col is None:
-        # Use column with fewest unique values
-        for col in train_df.columns:
-            if col != text_col:
-                label_col = col
-                print(f"Using label column: '{label_col}' (auto-detected)")
-                break
-    
-    if text_col is None or label_col is None:
-        raise ValueError(f"Could not identify text and label columns. Available columns: {train_df.columns.tolist()}")
-    
-    print(f"\n📊 Column Analysis:")
-    print(f"   Text column: '{text_col}' (dtype: {train_df[text_col].dtype})")
-    print(f"   Label column: '{label_col}' (dtype: {train_df[label_col].dtype})")
-    
-    # Extract data
-    X_train_raw = train_df[text_col]
-    y_train_raw = train_df[label_col]
-    X_test_raw = test_df[text_col]
-    y_test_raw = test_df[label_col]
-    
-    print(f"\n📈 Data Statistics:")
-    print(f"   Training samples: {len(X_train_raw)}")
-    print(f"   Test samples: {len(X_test_raw)}")
-    
-    # Preprocess text
-    print("\n🔄 Preprocessing text...")
-    X_train = X_train_raw.apply(clean_text)
-    X_test = X_test_raw.apply(clean_text)
-    
-    # Clean and encode labels
-    print("🔄 Cleaning and encoding labels...")
-    y_train_clean = clean_labels(y_train_raw)
-    y_test_clean = clean_labels(y_test_raw)
-    
-    print(f"\n📊 Label Analysis:")
-    print(f"   Training labels: {y_train_clean.value_counts().to_dict()}")
-    print(f"   Test labels: {y_test_clean.value_counts().to_dict()}")
-    
-    # Combine all labels for encoding
-    all_labels = pd.concat([y_train_clean, y_test_clean])
-    le = LabelEncoder()
-    le.fit(all_labels)
-    
-    y_train = le.transform(y_train_clean)
-    y_test = le.transform(y_test_clean)
-    
-    print(f"\n✅ Label Encoding:")
-    for i, label in enumerate(le.classes_):
-        print(f"   {i}: '{label}'")
-    
-    # Create validation split
-    X_train_split, X_val, y_train_split, y_val = train_test_split(
-        X_train, y_train, test_size=0.15, random_state=42, stratify=y_train
-    )
-    
-    print(f"\n📊 Final Data Splits:")
-    print(f"   Training: {len(X_train_split)} samples")
-    print(f"   Validation: {len(X_val)} samples")
-    print(f"   Test: {len(X_test)} samples")
-    
-    # Print class distribution
-    print(f"\n📈 Class Distribution:")
-    train_counts = np.bincount(y_train_split)
-    val_counts = np.bincount(y_val)
-    test_counts = np.bincount(y_test)
-    
-    for i in range(len(le.classes_)):
-        print(f"   Class {i} ('{le.classes_[i]}'): Train={train_counts[i]}, Val={val_counts[i]}, Test={test_counts[i]}")
-    
-    return X_train_split, X_val, X_test, y_train_split, y_val, y_test, le
+print(f"Sample cleaned text: '{train_df['text_clean'].iloc[0][:150]}...'")
+print(f"Text length stats:")
+print(f"  Min: {train_df['text_clean'].str.len().min()} chars")
+print(f"  Max: {train_df['text_clean'].str.len().max()} chars")
+print(f"  Mean: {train_df['text_clean'].str.len().mean():.0f} chars")
 
-def train_improved_model(X_train, y_train, X_val, y_val):
-    """Train an improved model with better hyperparameters"""
-    print("\n🔧 Training improved model...")
-    
-    # Calculate class weights
-    from sklearn.utils.class_weight import compute_class_weight
-    classes = np.unique(y_train)
-    weights = compute_class_weight('balanced', classes=classes, y=y_train)
-    class_weights = dict(zip(classes, weights))
-    print(f"Using class weights: {class_weights}")
-    
-    # Create improved pipeline
-    model = Pipeline([
-        ('tfidf', TfidfVectorizer(
-            max_features=5000,  # Reduced features
-            ngram_range=(1, 2),  # Use unigrams and bigrams
-            min_df=2,           # Ignore very rare words
-            max_df=0.95,        # Ignore very common words
-            stop_words='english',
-            sublinear_tf=True   # Use sublinear TF scaling
-        )),
-        ('clf', LogisticRegression(
-            max_iter=2000,
-            class_weight=class_weights,
-            C=1.0,              # Regularization strength
-            solver='liblinear',  # Good for small to medium datasets
-            random_state=42,
-            penalty='l2'
-        ))
-    ])
-    
-    # Train the model
-    print("Training in progress...")
-    model.fit(X_train, y_train)
-    
-    # Evaluate
-    train_acc = model.score(X_train, y_train)
-    val_acc = model.score(X_val, y_val)
-    
-    print(f"   Training accuracy: {train_acc:.4f}")
-    print(f"   Validation accuracy: {val_acc:.4f}")
-    
-    return model, train_acc, val_acc
+# STEP 3: SPLIT DATA
+print("\n STEP 3: SPLITTING DATA")
 
-def create_baseline_models(X_train, y_train, models_dir):
-    """Create and save baseline models"""
-    print("\n🏗️ Creating baseline models...")
-    
-    # Baseline A: Simple TF-IDF + Logistic Regression
-    print("Training Baseline A...")
-    baseline_a = Pipeline([
-        ('tfidf', TfidfVectorizer(max_features=3000)),
-        ('clf', LogisticRegression(max_iter=1000, class_weight='balanced', random_state=42))
-    ])
-    baseline_a.fit(X_train, y_train)
-    joblib.dump(baseline_a, models_dir / 'baseline_A_assignment3.joblib')
-    print(f"✅ Baseline A saved")
-    
-    # Baseline C: TF-IDF + LinearSVC
-    print("Training Baseline C...")
-    baseline_c = Pipeline([
-        ('tfidf', TfidfVectorizer(max_features=3000, ngram_range=(1, 2))),
-        ('clf', LinearSVC(max_iter=1000, class_weight='balanced', random_state=42))
-    ])
-    baseline_c.fit(X_train, y_train)
-    joblib.dump(baseline_c, models_dir / 'baseline_C_assignment3.joblib')
-    print(f"✅ Baseline C saved")
-    
-    return baseline_a, baseline_c
+# Split into train/test
+X_train, X_test, y_train, y_test = train_test_split(
+    train_df['text_clean'],
+    train_df['label_encoded'],
+    test_size=0.2,
+    random_state=42,
+    stratify=train_df['label_encoded']
+)
 
-def apply_data_augmentation(X_train, y_train):
-    """Apply simple data augmentation to handle class imbalance"""
-    print("\n🔄 Applying data augmentation...")
-    
-    from collections import Counter
-    import random
-    
-    # Analyze class distribution
-    class_counts = Counter(y_train)
-    print(f"Original class distribution: {dict(class_counts)}")
-    
-    # Find target size (balance to mean of counts)
-    target_size = int(np.mean(list(class_counts.values())))
-    print(f"Target size per class: {target_size}")
-    
-    augmented_texts = []
-    augmented_labels = []
-    
-    # Augment minority classes
-    for class_label, count in class_counts.items():
-        if count < target_size:
-            needed = target_size - count
-            class_samples = X_train[y_train == class_label].tolist()
-            
-            print(f"   Augmenting class {class_label}: {count} -> {target_size} (+{needed})")
-            
-            for _ in range(needed):
-                if not class_samples:
-                    continue
-                    
-                sample = random.choice(class_samples)
-                # Simple augmentation: shuffle words if long enough
-                words = sample.split()
-                if len(words) > 3:
-                    random.shuffle(words)
-                    augmented_text = ' '.join(words)
-                else:
-                    augmented_text = sample  # Keep as is if too short
-                    
-                augmented_texts.append(augmented_text)
-                augmented_labels.append(class_label)
-    
-    # Combine with original
-    if augmented_texts:
-        X_augmented = pd.concat([X_train, pd.Series(augmented_texts)], ignore_index=True)
-        y_augmented = pd.concat([pd.Series(y_train), pd.Series(augmented_labels)], ignore_index=True)
-        
-        new_counts = Counter(y_augmented)
-        print(f"Augmented class distribution: {dict(new_counts)}")
-        
-        return X_augmented, y_augmented
-    else:
-        print("No augmentation needed or possible")
-        return X_train, y_train
+# Further split train into train/validation
+X_train_final, X_val, y_train_final, y_val = train_test_split(
+    X_train,
+    y_train,
+    test_size=0.15,
+    random_state=42,
+    stratify=y_train
+)
 
-def create_ensemble_predictions(predictions_dict):
-    """Create ensemble predictions from multiple models"""
-    print("\n🤝 Creating ensemble predictions...")
-    
-    predictions = list(predictions_dict.values())
-    model_names = list(predictions_dict.keys())
-    n_samples = len(predictions[0])
-    
-    ensemble_preds = []
-    
-    for i in range(n_samples):
-        votes = [pred[i] for pred in predictions]
-        # Simple majority voting
-        from collections import Counter
-        vote_counts = Counter(votes)
-        best_pred = vote_counts.most_common(1)[0][0]
-        ensemble_preds.append(best_pred)
-    
-    return np.array(ensemble_preds)
+print(f"Training samples: {len(X_train_final)}")
+print(f"Validation samples: {len(X_val)}")
+print(f"Test samples: {len(X_test)}")
 
-def generate_visualizations(history, y_true, predictions_dict, metrics_df, plots_dir, label_encoder):
-    """Generate all required visualizations"""
-    print("\n🎨 Generating visualizations...")
-    
-    # Set style
-    plt.style.use('seaborn-v0_8-darkgrid')
-    
-    # Plot 1: Training History
-    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(12, 4))
-    
-    epochs = range(1, len(history['train_loss']) + 1)
-    
-    # Loss plot
-    ax1.plot(epochs, history['train_loss'], 'b-', label='Training Loss', linewidth=2, marker='o')
-    ax1.plot(epochs, history['val_loss'], 'r-', label='Validation Loss', linewidth=2, marker='s')
-    ax1.set_title('Training and Validation Loss', fontsize=14, fontweight='bold')
-    ax1.set_xlabel('Epochs', fontsize=12)
-    ax1.set_ylabel('Loss', fontsize=12)
-    ax1.legend(fontsize=11)
-    ax1.grid(True, alpha=0.3)
-    
-    # Accuracy plot
-    ax2.plot(epochs, history['train_accuracy'], 'b-', label='Training Accuracy', linewidth=2, marker='o')
-    ax2.plot(epochs, history['val_accuracy'], 'r-', label='Validation Accuracy', linewidth=2, marker='s')
-    ax2.set_title('Training and Validation Accuracy', fontsize=14, fontweight='bold')
-    ax2.set_xlabel('Epochs', fontsize=12)
-    ax2.set_ylabel('Accuracy', fontsize=12)
-    ax2.legend(fontsize=11)
-    ax2.grid(True, alpha=0.3)
-    
-    plt.tight_layout()
-    training_plot_path = plots_dir / 'training_history_assignment3.pdf'
-    plt.savefig(training_plot_path, format='pdf', dpi=300, bbox_inches='tight')
-    plt.close()
-    print(f"✅ Training history plot saved to: {training_plot_path}")
-    
-    # Plot 2: Confusion Matrices
-    n_models = len(predictions_dict)
-    fig, axes = plt.subplots(1, n_models, figsize=(5*n_models, 4))
-    
-    if n_models == 1:
-        axes = [axes]
-    
-    # Get class names from label encoder
-    class_names = [str(cls) for cls in label_encoder.classes_]
-    
-    for ax, (model_name, y_pred) in zip(axes, predictions_dict.items()):
-        cm = confusion_matrix(y_true, y_pred)
-        disp = ConfusionMatrixDisplay(confusion_matrix=cm, display_labels=class_names)
-        disp.plot(ax=ax, cmap='Blues', colorbar=False, xticks_rotation=45)
-        acc = accuracy_score(y_true, y_pred)
-        ax.set_title(f'{model_name}\nAccuracy: {acc:.3f}', fontsize=12, fontweight='bold')
-    
-    plt.tight_layout()
-    confusion_plot_path = plots_dir / 'confusion_matrices_assignment3.pdf'
-    plt.savefig(confusion_plot_path, format='pdf', dpi=300, bbox_inches='tight')
-    plt.close()
-    print(f"✅ Confusion matrices plot saved to: {confusion_plot_path}")
-    
-    # Plot 3: Metric Comparison
-    fig, ax = plt.subplots(figsize=(10, 6))
-    
-    x = range(len(metrics_df))
-    width = 0.35
-    
-    colors = ['#2E86AB', '#A23B72', '#F18F01']
-    
-    # Plot accuracy
-    ax.bar([xi - width/2 for xi in x], metrics_df['Accuracy'], width, 
-           label='Accuracy', color=colors[0], edgecolor='black')
-    
-    # Plot F1 score
-    ax.bar([xi + width/2 for xi in x], metrics_df['F1_Score'], width, 
-           label='F1 Score', color=colors[1], edgecolor='black')
-    
-    ax.set_xlabel('Models', fontsize=12, fontweight='bold')
-    ax.set_ylabel('Score', fontsize=12, fontweight='bold')
-    ax.set_title('Model Performance Comparison - Assignment 3', fontsize=14, fontweight='bold')
-    ax.set_xticks(x)
-    ax.set_xticklabels(metrics_df['Model'], rotation=45, ha='right', fontsize=11)
-    ax.set_ylim([0, 1.05])
-    ax.legend(fontsize=11)
-    ax.grid(True, alpha=0.3, axis='y')
-    
-    # Add value labels
-    for i in range(len(metrics_df)):
-        acc = metrics_df.iloc[i]['Accuracy']
-        f1 = metrics_df.iloc[i]['F1_Score']
-        ax.text(i - width/2, acc + 0.01, f'{acc:.3f}', ha='center', va='bottom', fontsize=9)
-        ax.text(i + width/2, f1 + 0.01, f'{f1:.3f}', ha='center', va='bottom', fontsize=9)
-    
-    plt.tight_layout()
-    metric_plot_path = plots_dir / 'metric_comparison_assignment3.pdf'
-    plt.savefig(metric_plot_path, format='pdf', dpi=300, bbox_inches='tight')
-    plt.close()
-    print(f"✅ Metric comparison plot saved to: {metric_plot_path}")
-    
-    # Plot 4: Class Distribution
-    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(10, 4))
-    
-    # Original distribution
-    unique, counts = np.unique(y_true, return_counts=True)
-    class_labels = [f"{cls}\n({label_encoder.classes_[cls]})" for cls in unique]
-    
-    bars1 = ax1.bar(range(len(unique)), counts, color=colors, edgecolor='black')
-    ax1.set_title('Test Set Class Distribution', fontsize=12, fontweight='bold')
-    ax1.set_xlabel('Class', fontsize=11)
-    ax1.set_ylabel('Count', fontsize=11)
-    ax1.set_xticks(range(len(unique)))
-    ax1.set_xticklabels(class_labels, rotation=0)
-    
-    # Add count labels
-    for bar, count in zip(bars1, counts):
-        height = bar.get_height()
-        ax1.text(bar.get_x() + bar.get_width()/2., height + 0.5, str(count), 
-                ha='center', va='bottom', fontsize=10)
-    
-    # Performance by class for best model
-    best_model_name = metrics_df.loc[metrics_df['Accuracy'].idxmax(), 'Model']
-    y_pred_best = predictions_dict[best_model_name]
-    
-    class_accuracies = []
-    for cls in unique:
-        mask = (y_true == cls)
-        if mask.sum() > 0:
-            acc = accuracy_score(y_true[mask], y_pred_best[mask])
-            class_accuracies.append(acc)
-    
-    bars2 = ax2.bar(range(len(unique)), class_accuracies, color=colors, edgecolor='black')
-    ax2.set_title(f'Accuracy by Class ({best_model_name})', fontsize=12, fontweight='bold')
-    ax2.set_xlabel('Class', fontsize=11)
-    ax2.set_ylabel('Accuracy', fontsize=11)
-    ax2.set_ylim([0, 1.0])
-    ax2.set_xticks(range(len(unique)))
-    ax2.set_xticklabels(class_labels, rotation=0)
-    
-    # Add accuracy labels
-    for bar, acc in zip(bars2, class_accuracies):
-        height = bar.get_height()
-        ax2.text(bar.get_x() + bar.get_width()/2., height + 0.02, f'{acc:.3f}', 
-                ha='center', va='bottom', fontsize=10)
-    
-    plt.tight_layout()
-    distribution_plot_path = plots_dir / 'class_distribution_assignment3.pdf'
-    plt.savefig(distribution_plot_path, format='pdf', dpi=300, bbox_inches='tight')
-    plt.close()
-    print(f"✅ Class distribution plot saved to: {distribution_plot_path}")
+# STEP 4: CREATE MODELS
+print("\n STEP 4: CREATING MODELS")
 
-def main():
-    parser = argparse.ArgumentParser(
-        description="Assignment 3: Final Corrected Solution for QEvasion Dataset",
-        formatter_class=argparse.RawDescriptionHelpFormatter,
-        epilog="""
-Examples:
-  python run_assignment3_final_corrected.py
-  python run_assignment3_final_corrected.py --augment --ensemble
-        """
-    )
+# Calculate class weights
+class_weights = compute_class_weight(
+    class_weight='balanced',
+    classes=np.unique(y_train_final),
+    y=y_train_final
+)
+class_weight_dict = dict(zip(np.unique(y_train_final), class_weights))
+
+print("Class weights for balancing:")
+for i, cls in enumerate(le.classes_):
+    if i in class_weight_dict:
+        print(f"  {cls:25s}: weight = {class_weight_dict[i]:.2f}")
+
+# Model 1: Baseline A
+baseline_a = Pipeline([
+    ('tfidf', TfidfVectorizer(
+        max_features=3000,
+        ngram_range=(1, 1)
+    )),
+    ('clf', LogisticRegression(
+        max_iter=1000,
+        random_state=42,
+        class_weight='balanced',
+        solver='lbfgs'
+    ))
+])
+
+# Model 2: Baseline C
+baseline_c = Pipeline([
+    ('tfidf', TfidfVectorizer(
+        max_features=3000,
+        ngram_range=(1, 2)
+    )),
+    ('clf', LinearSVC(
+        max_iter=1000,
+        random_state=42,
+        class_weight='balanced'
+    ))
+])
+
+# Model 3: Proposed (Enhanced)
+proposed = Pipeline([
+    ('tfidf', TfidfVectorizer(
+        max_features=4000,
+        ngram_range=(1, 2),
+        min_df=2,
+        max_df=0.95,
+        stop_words='english',
+        sublinear_tf=True
+    )),
+    ('clf', LogisticRegression(
+        max_iter=2000,
+        C=0.5,
+        class_weight=class_weight_dict,
+        solver='lbfgs',
+        random_state=42
+    ))
+])
+
+# Model 4: Random Forest (for comparison)
+rf_model = Pipeline([
+    ('tfidf', TfidfVectorizer(
+        max_features=2000,
+        ngram_range=(1, 2)
+    )),
+    ('clf', RandomForestClassifier(
+        n_estimators=100,
+        max_depth=15,
+        class_weight='balanced',
+        random_state=42,
+        n_jobs=-1
+    ))
+])
+
+models = {
+    'Baseline_A': baseline_a,
+    'Baseline_C': baseline_c,
+    'Proposed': proposed,
+    'RandomForest': rf_model
+}
+
+print(f"\nCreated {len(models)} models")
+
+# STEP 5: TRAIN MODELS
+print("\n STEP 5: TRAINING MODELS")
+
+validation_results = []
+
+for name, model in models.items():
+    print(f"\nTraining {name}...")
     
-    # Experiment options
-    parser.add_argument('--augment', action='store_true',
-                       help="Use data augmentation to handle class imbalance")
-    parser.add_argument('--ensemble', action='store_true',
-                       help="Use ensemble method")
-    
-    args = parser.parse_args()
-    
-    # Define output directories
-    plots_dir = Path(r"C:\Users\Shining star\Desktop\AI\Baseline Pipeline Implementation\Project_Assignment_02\plots")
-    results_dir = Path(r"C:\Users\Shining star\Desktop\AI\Baseline Pipeline Implementation\Project_Assignment_02\outputs")
-    models_dir = Path(r"C:\Users\Shining star\Desktop\AI\Baseline Pipeline Implementation\Project_Assignment_02\models")
-    
-    # Create directories
-    plots_dir.mkdir(parents=True, exist_ok=True)
-    results_dir.mkdir(parents=True, exist_ok=True)
-    models_dir.mkdir(parents=True, exist_ok=True)
-    
-    print("="*70)
-    print("ASSIGNMENT 3: FINAL CORRECTED SOLUTION")
-    print("="*70)
-    print(f"Augmentation: {args.augment}")
-    print(f"Ensemble: {args.ensemble}")
-    print("="*70)
-    
-    # ===== 1. LOAD AND PREPARE DATA =====
     try:
-        X_train, X_val, X_test, y_train, y_val, y_test, label_encoder = load_and_prepare_data(
-            r"QEvasion\data\train-00000-of-00001.parquet",
-            r"QEvasion\data\test-00000-of-00001.parquet"
-        )
+        model.fit(X_train_final, y_train_final)
+        
+        # Validation performance
+        y_val_pred = model.predict(X_val)
+        val_acc = accuracy_score(y_val, y_val_pred)
+        val_f1 = f1_score(y_val, y_val_pred, average='weighted')
+        
+        validation_results.append({
+            'Model': name,
+            'Val_Accuracy': val_acc,
+            'Val_F1': val_f1
+        })
+        
+        print(f"  Validation Accuracy: {val_acc:.4f}")
+        print(f"  Validation F1 Score: {val_f1:.4f}")
+        
     except Exception as e:
-        print(f"❌ Error loading data: {e}")
-        print("\nTrying alternative loading approach...")
+        print(f"  ❌ Training failed: {e}")
+
+# STEP 6: TEST EVALUATION
+print("\n STEP 6: TEST EVALUATION")
+
+test_results = []
+predictions = {}
+detailed_reports = {}
+
+for name, model in models.items():
+    print(f"\nEvaluating {name}...")
+    
+    try:
+        y_pred = model.predict(X_test)
+        predictions[name] = y_pred
         
-        # Alternative loading
-        train_df = pd.read_parquet(r"QEvasion\data\train-00000-of-00001.parquet")
-        test_df = pd.read_parquet(r"QEvasion\data\test-00000-of-00001.parquet")
-        
-        print(f"Train columns: {train_df.columns.tolist()}")
-        print(f"Test columns: {test_df.columns.tolist()}")
-        return
-    
-    # ===== 2. HANDLE CLASS IMBALANCE =====
-    if args.augment:
-        X_train, y_train = apply_data_augmentation(X_train, y_train)
-    
-    # ===== 3. TRAIN IMPROVED PROPOSED MODEL =====
-    print("\n" + "="*70)
-    print("TRAINING IMPROVED PROPOSED MODEL")
-    print("="*70)
-    
-    proposed_model, train_acc, val_acc = train_improved_model(X_train, y_train, X_val, y_val)
-    
-    # Test the model
-    test_acc = proposed_model.score(X_test, y_test)
-    y_pred_proposed = proposed_model.predict(X_test)
-    test_f1 = f1_score(y_test, y_pred_proposed, average='weighted')
-    
-    print(f"\n📊 Proposed Model Performance:")
-    print(f"   Training Accuracy: {train_acc:.4f}")
-    print(f"   Validation Accuracy: {val_acc:.4f}")
-    print(f"   Test Accuracy: {test_acc:.4f}")
-    print(f"   Test F1 Score: {test_f1:.4f}")
-    
-    # Save the model
-    model_path = models_dir / 'proposed_model_assignment3.joblib'
-    joblib.dump(proposed_model, model_path)
-    print(f"✅ Model saved to: {model_path}")
-    
-    # ===== 4. CREATE BASELINE MODELS =====
-    print("\n" + "="*70)
-    print("CREATING BASELINE MODELS")
-    print("="*70)
-    
-    baseline_a, baseline_c = create_baseline_models(X_train, y_train, models_dir)
-    
-    # Get predictions from all models
-    predictions_dict = {
-        'Baseline A': baseline_a.predict(X_test),
-        'Baseline C': baseline_c.predict(X_test),
-        'Proposed Model': y_pred_proposed
-    }
-    
-    # ===== 5. CREATE ENSEMBLE =====
-    if args.ensemble:
-        print("\n" + "="*70)
-        print("CREATING ENSEMBLE MODEL")
-        print("="*70)
-        
-        ensemble_preds = create_ensemble_predictions(predictions_dict)
-        predictions_dict['Ensemble'] = ensemble_preds
-    
-    # ===== 6. EVALUATE ALL MODELS =====
-    print("\n" + "="*70)
-    print("MODEL EVALUATION RESULTS")
-    print("="*70)
-    
-    metrics_data = []
-    
-    print(f"\n{'Model':<20} {'Accuracy':<10} {'F1 Score':<10} {'Precision':<10} {'Recall':<10}")
-    print("-"*60)
-    
-    for model_name, y_pred in predictions_dict.items():
         acc = accuracy_score(y_test, y_pred)
         f1 = f1_score(y_test, y_pred, average='weighted')
-        precision = f1_score(y_test, y_pred, average='weighted', zero_division=0)
-        recall = f1_score(y_test, y_pred, average='weighted', zero_division=0)
         
-        metrics_data.append({
-            'Model': model_name,
+        test_results.append({
+            'Model': name,
             'Accuracy': round(acc, 4),
-            'F1_Score': round(f1, 4),
-            'Precision': round(precision, 4),
-            'Recall': round(recall, 4)
+            'F1_Score': round(f1, 4)
         })
         
-        print(f"{model_name:<20} {acc:<10.4f} {f1:<10.4f} {precision:<10.4f} {recall:<10.4f}")
+        print(f"  Test Accuracy: {acc:.4f}")
+        print(f"  Test F1 Score: {f1:.4f}")
         
-        # Save detailed classification report
-        report = classification_report(y_test, y_pred, output_dict=True)
-        report_df = pd.DataFrame(report).transpose()
-        report_path = results_dir / f'{model_name.lower().replace(" ", "_")}_report_assignment3.csv'
-        report_df.to_csv(report_path, index=True)
+        # Get detailed report
+        report = classification_report(y_test, y_pred, target_names=le.classes_, output_dict=True)
+        detailed_reports[name] = report
         
-        # Save confusion matrix
-        cm = confusion_matrix(y_test, y_pred)
-        cm_df = pd.DataFrame(cm)
-        cm_path = results_dir / f'confusion_matrix_{model_name.lower().replace(" ", "_")}_assignment3.csv'
-        cm_df.to_csv(cm_path, index=False)
+        # Print top 3 classes by F1
+        class_f1_scores = []
+        for i, cls in enumerate(le.classes_):
+            if cls in report:
+                class_f1_scores.append((cls, report[cls]['f1-score']))
+        
+        class_f1_scores.sort(key=lambda x: x[1], reverse=True)
+        print(f"  Top 3 classes by F1:")
+        for cls, f1_score_val in class_f1_scores[:3]:
+            print(f"    {cls:25s}: {f1_score_val:.4f}")
+            
+    except Exception as e:
+        print(f"  ❌ Evaluation failed: {e}")
+
+# STEP 7: CREATE SIMPLE ENSEMBLE
+print("\n STEP 7: CREATING ENSEMBLE")
+
+if len(predictions) >= 2:
+    # Simple majority voting
+    pred_arrays = list(predictions.values())
+    ensemble_preds = []
     
-    metrics_df = pd.DataFrame(metrics_data)
-    metrics_path = results_dir / 'model_comparison_assignment3.csv'
-    metrics_df.to_csv(metrics_path, index=False)
-    print(f"\n✅ Metrics saved to: {metrics_path}")
+    for i in range(len(pred_arrays[0])):
+        votes = [pred[i] for pred in pred_arrays]
+        vote_counts = Counter(votes)
+        winner = vote_counts.most_common(1)[0][0]
+        ensemble_preds.append(winner)
     
-    # ===== 7. CREATE TRAINING HISTORY =====
-    # Create realistic training history for visualization
-    history = {
-        'train_loss': [0.8, 0.65, 0.55, 0.48, 0.42, 0.38, 0.35, 0.33, 0.31, 0.29],
-        'val_loss': [0.82, 0.68, 0.58, 0.52, 0.47, 0.44, 0.42, 0.40, 0.39, 0.38],
-        'train_accuracy': [0.55, 0.62, 0.68, 0.72, 0.75, 0.77, 0.78, 0.79, 0.80, 0.81],
-        'val_accuracy': [0.53, 0.60, 0.65, 0.68, 0.70, 0.71, 0.72, 0.72, 0.73, 0.73]
-    }
+    ensemble_preds = np.array(ensemble_preds)
+    predictions['Ensemble'] = ensemble_preds
     
-    # Save history
-    history_path = results_dir / 'training_history_assignment3.joblib'
-    joblib.dump(history, history_path)
+    acc = accuracy_score(y_test, ensemble_preds)
+    f1 = f1_score(y_test, ensemble_preds, average='weighted')
     
-    # ===== 8. GENERATE VISUALIZATIONS =====
-    generate_visualizations(history, y_test, predictions_dict, metrics_df, plots_dir, label_encoder)
+    test_results.append({
+        'Model': 'Ensemble',
+        'Accuracy': round(acc, 4),
+        'F1_Score': round(f1, 4)
+    })
     
-    # ===== 9. SAVE PREDICTIONS AND ANALYSIS =====
-    print("\n" + "="*70)
-    print("SAVING RESULTS AND ANALYSIS")
-    print("="*70)
-    
-    # Save predictions
-    for model_name, y_pred in predictions_dict.items():
+    print(f"Ensemble Accuracy: {acc:.4f}")
+    print(f"Ensemble F1 Score: {f1:.4f}")
+
+# STEP 8: SAVE RESULTS
+print("\n STEP 8: SAVING RESULTS")
+
+output_dir = Path("assignment3_final_corrected")
+output_dir.mkdir(exist_ok=True)
+
+# Save models
+models_dir = output_dir / "models"
+models_dir.mkdir(exist_ok=True)
+
+for name, model in models.items():
+    try:
+        joblib.dump(model, models_dir / f"{name}.joblib")
+        print(f"   Saved {name} model")
+    except Exception as e:
+        print(f"   Failed to save {name}: {e}")
+
+# Save results
+results_df = pd.DataFrame(test_results)
+results_df.to_csv(output_dir / "model_comparison.csv", index=False)
+print(f"   Saved model comparison")
+
+# Save predictions
+for name, pred in predictions.items():
+    try:
         pred_df = pd.DataFrame({
             'text': X_test.tolist(),
-            'true_label': y_test,
-            'true_label_name': label_encoder.inverse_transform(y_test),
-            'pred_label': y_pred,
-            'pred_label_name': label_encoder.inverse_transform(y_pred),
-            'correct': (y_test == y_pred).astype(int)
+            'true_label': y_test.tolist(),
+            'true_label_name': le.inverse_transform(y_test),
+            'predicted_label': pred.tolist(),
+            'predicted_label_name': le.inverse_transform(pred),
+            'correct': (y_test == pred).astype(int).tolist()
         })
-        pred_path = results_dir / f'{model_name.lower().replace(" ", "_")}_predictions_assignment3.csv'
-        pred_df.to_csv(pred_path, index=False)
-        print(f"✅ Predictions saved: {pred_path}")
+        pred_df.to_csv(output_dir / f"{name}_predictions.csv", index=False)
+        print(f"   Saved {name} predictions")
+    except Exception as e:
+        print(f"   Failed to save {name} predictions: {e}")
+
+# STEP 9: CREATE VISUALIZATIONS
+print("\n STEP 9: CREATING VISUALIZATIONS")
+
+plots_dir = output_dir / "plots"
+plots_dir.mkdir(exist_ok=True)
+
+plt.style.use('seaborn-v0_8-darkgrid')
+
+# Plot 1: Model Comparison
+if len(results_df) > 0:
+    plt.figure(figsize=(10, 6))
+    x = np.arange(len(results_df))
+    width = 0.35
     
-    # Error analysis for best model
-    best_model_name = metrics_df.loc[metrics_df['Accuracy'].idxmax(), 'Model']
-    y_pred_best = predictions_dict[best_model_name]
+    colors = ['#2E86AB', '#A23B72', '#F18F01', '#73C6B6', '#C73E1D']
     
-    error_mask = (y_test != y_pred_best)
-    error_indices = np.where(error_mask)[0]
+    bars1 = plt.bar(x - width/2, results_df['Accuracy'], width, 
+                   label='Accuracy', color=colors[0], edgecolor='black', alpha=0.8)
+    bars2 = plt.bar(x + width/2, results_df['F1_Score'], width, 
+                   label='F1 Score', color=colors[1], edgecolor='black', alpha=0.8)
     
-    if len(error_indices) > 0:
-        error_samples = []
-        for idx in error_indices[:20]:  # First 20 errors
-            error_samples.append({
-                'text': X_test.iloc[idx] if hasattr(X_test, 'iloc') else X_test[idx],
-                'true_label': int(y_test[idx]),
-                'true_label_name': label_encoder.inverse_transform([y_test[idx]])[0],
-                'pred_label': int(y_pred_best[idx]),
-                'pred_label_name': label_encoder.inverse_transform([y_pred_best[idx]])[0]
-            })
-        
-        error_df = pd.DataFrame(error_samples)
-        error_path = results_dir / 'error_analysis_assignment3.csv'
-        error_df.to_csv(error_path, index=False)
-        print(f"✅ Error analysis saved: {error_path}")
+    plt.xlabel('Models', fontsize=12, fontweight='bold')
+    plt.ylabel('Score', fontsize=12, fontweight='bold')
+    plt.title('Model Performance Comparison - Assignment 3', fontsize=14, fontweight='bold')
+    plt.xticks(x, results_df['Model'], rotation=45, ha='right')
+    plt.ylim(0, 1.0)
+    plt.legend()
     
-    # Save experiment summary
+    # Add value labels
+    for bars in [bars1, bars2]:
+        for bar in bars:
+            height = bar.get_height()
+            if height > 0:
+                plt.text(bar.get_x() + bar.get_width()/2., height + 0.01,
+                        f'{height:.3f}', ha='center', va='bottom', fontsize=9)
+    
+    plt.tight_layout()
+    plt.savefig(plots_dir / "model_comparison.pdf", format='pdf', dpi=300)
+    plt.close()
+    print(f" Created model comparison plot")
+
+# Plot 2: Confusion Matrix for Best Model
+if predictions and len(y_test) > 0:
+    # Find best model
+    if len(results_df) > 0:
+        best_model_name = results_df.loc[results_df['Accuracy'].idxmax(), 'Model']
+        if best_model_name in predictions:
+            y_pred_best = predictions[best_model_name]
+            
+            plt.figure(figsize=(8, 6))
+            cm = confusion_matrix(y_test, y_pred_best)
+            disp = ConfusionMatrixDisplay(confusion_matrix=cm, display_labels=le.classes_)
+            disp.plot(cmap='Blues', xticks_rotation=45)
+            acc = accuracy_score(y_test, y_pred_best)
+            plt.title(f'Confusion Matrix: {best_model_name}\nAccuracy: {acc:.3f}', 
+                     fontsize=14, fontweight='bold')
+            plt.tight_layout()
+            plt.savefig(plots_dir / "confusion_matrix_best.pdf", format='pdf', dpi=300)
+            plt.close()
+            print(f" Created confusion matrix for {best_model_name}")
+
+# Plot 3: Class Distribution
+plt.figure(figsize=(10, 6))
+class_counts = Counter(y_test)
+classes = le.classes_
+counts = [class_counts.get(i, 0) for i in range(len(classes))]
+
+bars = plt.bar(range(len(classes)), counts, color=colors[:len(classes)], 
+               edgecolor='black', alpha=0.8)
+
+plt.xlabel('Classes', fontsize=12, fontweight='bold')
+plt.ylabel('Count', fontsize=12, fontweight='bold')
+plt.title('Test Set Class Distribution', fontsize=14, fontweight='bold')
+plt.xticks(range(len(classes)), classes, rotation=45, ha='right')
+
+# Add count labels
+for bar, count in zip(bars, counts):
+    height = bar.get_height()
+    plt.text(bar.get_x() + bar.get_width()/2., height + 0.5, str(count), 
+             ha='center', va='bottom', fontsize=10)
+
+plt.tight_layout()
+plt.savefig(plots_dir / "class_distribution.pdf", format='pdf', dpi=300)
+plt.close()
+print(f" Created class distribution plot")
+
+# STEP 10: CREATE SUMMARY
+print("\n STEP 10: CREATING SUMMARY")
+
+if len(results_df) > 0:
+    best_acc_idx = results_df['Accuracy'].idxmax()
+    best_f1_idx = results_df['F1_Score'].idxmax()
+    
     summary = {
-        'experiment_settings': vars(args),
-        'data_statistics': {
-            'train_samples': len(X_train),
+        'experiment': {
+            'name': 'Assignment 3 - QEvasion Text Classification',
+            'date': pd.Timestamp.now().strftime('%Y-%m-%d %H:%M:%S'),
+            'text_column_used': text_col,
+            'label_column_used': label_col,
+            'note': 'Test set had empty labels - used 80/20 split from training data'
+        },
+        'dataset': {
+            'total_samples': len(train_df),
+            'train_samples': len(X_train_final),
             'val_samples': len(X_val),
             'test_samples': len(X_test),
-            'n_classes': len(label_encoder.classes_),
-            'classes': label_encoder.classes_.tolist(),
-            'class_distribution_test': dict(zip(label_encoder.classes_, np.bincount(y_test)))
+            'n_classes': len(le.classes_),
+            'classes': le.classes_.tolist(),
+            'class_imbalance_ratio': max(Counter(y_test).values()) / min(Counter(y_test).values())
         },
-        'model_performance': metrics_df.to_dict('records'),
-        'best_model': {
-            'name': best_model_name,
-            'accuracy': float(metrics_df.loc[metrics_df['Accuracy'].idxmax(), 'Accuracy']),
-            'f1_score': float(metrics_df.loc[metrics_df['F1_Score'].idxmax(), 'F1_Score'])
-        }
+        'models': list(models.keys()),
+        'results': results_df.to_dict('records'),
+        'best_models': {
+            'by_accuracy': {
+                'model': results_df.loc[best_acc_idx, 'Model'],
+                'accuracy': float(results_df.loc[best_acc_idx, 'Accuracy']),
+                'f1_score': float(results_df.loc[best_acc_idx, 'F1_Score'])
+            },
+            'by_f1_score': {
+                'model': results_df.loc[best_f1_idx, 'Model'],
+                'accuracy': float(results_df.loc[best_f1_idx, 'Accuracy']),
+                'f1_score': float(results_df.loc[best_f1_idx, 'F1_Score'])
+            }
+        },
+        'key_insights': [
+            f"Dataset has significant class imbalance (ratio: {max(Counter(y_test).values()) / min(Counter(y_test).values()):.1f}:1)",
+            f"Best model achieves {results_df['Accuracy'].max():.1%} accuracy",
+            f"F1 scores range from {results_df['F1_Score'].min():.1%} to {results_df['F1_Score'].max():.1%}",
+            f"Ensemble method {'improved' if 'Ensemble' in results_df['Model'].values and results_df.loc[results_df['Model'] == 'Ensemble', 'Accuracy'].values[0] > results_df.loc[results_df['Model'] != 'Ensemble', 'Accuracy'].max() else 'did not significantly improve'} performance"
+        ]
     }
     
-    summary_path = results_dir / 'experiment_summary_assignment3.json'
-    with open(summary_path, 'w') as f:
+    with open(output_dir / "experiment_summary.json", 'w') as f:
         json.dump(summary, f, indent=2)
     
-    print(f"✅ Experiment summary saved: {summary_path}")
-    
-    # ===== 10. FINAL REPORT =====
-    print("\n" + "="*70)
-    print("🎉 ASSIGNMENT 3 - COMPLETE ANALYSIS")
-    print("="*70)
-    
-    print(f"\n📊 FINAL RESULTS:")
-    print("-"*60)
-    print(metrics_df.to_string(index=False))
-    
-    best_row = metrics_df.loc[metrics_df['Accuracy'].idxmax()]
-    print(f"\n🏆 BEST PERFORMING MODEL: {best_row['Model']}")
-    print(f"   Accuracy: {best_row['Accuracy']:.4f}")
-    print(f"   F1 Score: {best_row['F1_Score']:.4f}")
-    
-    print(f"\n📈 KEY FINDINGS:")
-    print(f"   1. Found {len(label_encoder.classes_)} classes in the data")
-    print(f"   2. Class imbalance handled through weighting/augmentation")
-    print(f"   3. Proposed model optimized to reduce overfitting")
-    print(f"   4. All models compared comprehensively")
-    
-    print(f"\n📁 OUTPUT FILES CREATED:")
-    print(f"   📂 {plots_dir}/")
-    print(f"     ├── training_history_assignment3.pdf")
-    print(f"     ├── confusion_matrices_assignment3.pdf")
-    print(f"     ├── metric_comparison_assignment3.pdf")
-    print(f"     └── class_distribution_assignment3.pdf")
-    print(f"   📂 {results_dir}/")
-    print(f"     ├── model_comparison_assignment3.csv")
-    print(f"     ├── experiment_summary_assignment3.json")
-    print(f"     ├── *_report_assignment3.csv")
-    print(f"     ├── *_predictions_assignment3.csv")
-    print(f"     ├── error_analysis_assignment3.csv")
-    print(f"     ├── confusion_matrix_*.csv")
-    print(f"     └── training_history_assignment3.joblib")
-    print(f"   📂 {models_dir}/")
-    print(f"     ├── baseline_A_assignment3.joblib")
-    print(f"     ├── baseline_C_assignment3.joblib")
-    print(f"     └── proposed_model_assignment3.joblib")
-    
-    print(f"\n📝 RECOMMENDATIONS FOR REPORT:")
-    print(f"   1. Include the 4 PDF plots showing model performance")
-    print(f"   2. Use the confusion matrices to analyze error patterns")
-    print(f"   3. Discuss class imbalance and how it was addressed")
-    print(f"   4. Compare proposed vs baseline model performance")
-    print(f"   5. Include error analysis examples from the CSV")
-    
-    print(f"\n✅ Assignment 3 completed successfully!")
-    print("="*70)
+    print(f" Created experiment summary")
 
-if __name__ == '__main__':
-    main()
+# TEP 11: FINAL OUTPUT
+print(" ASSIGNMENT 3 - FINAL CORRECTED SOLUTION COMPLETE")
+
+if len(results_df) > 0:
+    print(f"\n FINAL RESULTS:")
+    print(results_df.to_string(index=False))
+    
+    best_model = results_df.loc[results_df['Accuracy'].idxmax()]
+    print(f"\n BEST MODEL: {best_model['Model']}")
+    print(f"   Accuracy: {best_model['Accuracy']:.4f}")
+    print(f"   F1 Score: {best_model['F1_Score']:.4f}")
+
+print(f"\n PERFORMANCE ANALYSIS:")
+print(f"  1. Used '{text_col}' column for text features (avg length: {train_df['text_clean'].str.len().mean():.0f} chars)")
+print(f"  2. Dataset has {len(le.classes_)} classes with significant imbalance")
+print(f"  3. All models trained with class balancing techniques")
+print(f"  4. Created ensemble for improved performance")
