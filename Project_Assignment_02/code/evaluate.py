@@ -25,7 +25,7 @@ def evaluate_models(models, X_test, y_test, output_dir="results"):
     print("="*60)
     
     for name, model in models.items():
-        print(f"\n📈 Evaluating {name}...")
+        print(f"\n Evaluating {name}...")
         
         # Make predictions
         y_pred = model.predict(X_test)
@@ -103,4 +103,4 @@ def generate_plots(predictions, y_test, results_df, plots_dir):
     plt.savefig(plots_dir / "confusion_matrices.pdf", format='pdf', dpi=300)
     plt.close()
     
-    print(f"\n✅ Plots saved to {plots_dir}/")
+    print(f"\n Plots saved to {plots_dir}/")

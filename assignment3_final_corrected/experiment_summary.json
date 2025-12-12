@@ -1,7 +1,7 @@
 {
   "experiment": {
     "name": "Assignment 3 - QEvasion Text Classification",
-    "date": "2025-12-12 19:13:01",
+    "date": "2025-12-12 19:27:51",
     "text_column_used": "question",
     "label_column_used": "evasion_label",
     "note": "Test set had empty labels - used 80/20 split from training data"

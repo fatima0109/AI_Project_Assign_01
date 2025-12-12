@@ -270,7 +270,7 @@ def evaluate_models(y_true, predictions_dict, results_dir):
     metrics_path = results_dir / 'model_comparison_assignment3.csv'
     metrics_df.to_csv(metrics_path, index=False)
     
-    print(f"\n✅ Metrics saved to: {metrics_path}")
+    print(f"\n Metrics saved to: {metrics_path}")
     
     return metrics_df
 
@@ -300,7 +300,7 @@ def plot_training_history(history, save_path):
     plt.tight_layout()
     plt.savefig(save_path, format='pdf', dpi=300, bbox_inches='tight')
     plt.close()
-    print(f"✅ Training history plot saved to: {save_path}")
+    print(f" Training history plot saved to: {save_path}")
 
 def plot_confusion_matrices(y_true, predictions_dict, plots_dir):
     """Plot confusion matrices for all models"""
@@ -323,7 +323,7 @@ def plot_confusion_matrices(y_true, predictions_dict, plots_dir):
     save_path = plots_dir / 'confusion_matrices_assignment3.pdf'
     plt.savefig(save_path, format='pdf', dpi=300, bbox_inches='tight')
     plt.close()
-    print(f"✅ Confusion matrices saved to: {save_path}")
+    print(f" Confusion matrices saved to: {save_path}")
 
 def plot_metric_comparison(metrics_df, plots_dir):
     """Plot metric comparison bar chart"""
@@ -356,4 +356,4 @@ def plot_metric_comparison(metrics_df, plots_dir):
     save_path = plots_dir / 'metric_comparison_assignment3.pdf'
     plt.savefig(save_path, format='pdf', dpi=300, bbox_inches='tight')
     plt.close()
-    print(f"✅ Metric comparison plot saved to: {save_path}")
+    print(f" Metric comparison plot saved to: {save_path}")
