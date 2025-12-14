@@ -1,0 +1,6 @@
+Model,Accuracy,F1_Score
+Baseline_A,0.1942,0.2053
+Baseline_C,0.2217,0.2278
+Proposed,0.158,0.1657
+RandomForest,0.2406,0.2305
+Ensemble,0.1986,0.2098

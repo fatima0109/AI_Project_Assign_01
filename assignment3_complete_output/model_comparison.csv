@@ -1,5 +1,0 @@
-Model,Accuracy,F1_Score
-Baseline_A,0.3058,0.1432
-Baseline_C,0.3058,0.1432
-Proposed,0.3058,0.1432
-Ensemble,0.3058,0.1432
